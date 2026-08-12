@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Philly Coffee Map</title>
+<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.css">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --espresso:#2B1B12;
+    --cream:#F1EAE0;
+    --paper:#FFFFFF;
+    --rust:#B5622A;
+    --sage:#6E7F5C;
+    --line:#E3D8C4;
+    --linkblue:#2B5C8A;
+    --shadow: 0 2px 10px rgba(43,27,18,0.08);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;}
+  body{ font-family:'TT Commons Pro', sans-serif; background:var(--cream); color:var(--espresso); }
+
+  .app{
+    position:fixed;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* ---------- TOP FILTER BAR ---------- */
+  .topbar{
+    display:flex;
+    align-items:flex-end;
+    gap:32px;
+    padding:18px 24px;
+    background:var(--cream);
+    border-bottom:1px solid var(--line);
+    flex:0 0 auto;
+  }
+  .filter-field{ display:flex; flex-direction:column; gap:6px; }
+  .filter-label{
+    font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color:var(--espresso);
+  }
+  .filter-select-wrap{ position:relative; }
+  .dropdown-toggle{
+    display:flex; align-items:center; gap:6px;
+    border:none; border-bottom:1px solid var(--espresso);
+    background:transparent; padding:2px 4px 6px 0;
+    font-family:'TT Commons Pro', sans-serif; font-size:14px; color:var(--linkblue);
+    cursor:pointer; min-width:90px; text-align:left;
+  }
+  .dropdown-toggle .caret{
+    margin-left:auto; width:0; height:0;
+    border-left:5px solid transparent; border-right:5px solid transparent;
+    border-top:6px solid var(--espresso);
+    transition: transform .15s ease;
+  }
+  .dropdown-toggle.is-open .caret{ transform: rotate(180deg); }
+
+  .dropdown-panel{
+    display:none;
+    position:absolute; top:100%; left:0; margin-top:6px;
+    background:var(--paper); border:1px solid var(--line); border-radius:4px;
+    box-shadow:0 8px 24px rgba(43,27,18,0.18);
+    width:240px; max-height:280px; overflow-y:auto;
+    z-index:20; padding:4px 0;
+  }
+  .dropdown-panel.is-open{ display:block; }
+
+  .dropdown-option{
+    display:flex; align-items:center; gap:10px;
+    padding:8px 14px; font-size:13.5px; color:var(--espresso);
+    cursor:pointer; white-space:nowrap;
+  }
+  .dropdown-option:hover{ background:var(--cream); }
+  .dropdown-option input[type="checkbox"]{
+    width:15px; height:15px; accent-color:var(--espresso); cursor:pointer; flex:0 0 auto;
+  }
+  .dropdown-option-all{ font-weight:600; border-bottom:1px solid var(--line); margin-bottom:2px; }
+
+  .search-field{ flex:1 1 auto; max-width:320px; }
+  .search-box{ position:relative; }
+  .search-box input[type="text"]{
+    width:100%; border:none; border-bottom:1px solid var(--espresso);
+    background:transparent; padding:2px 26px 6px 0;
+    font-family:'TT Commons Pro', sans-serif; font-size:14px; color:var(--espresso);
+  }
+  .search-box input[type="text"]:focus{ outline:none; }
+  .search-box input[type="text"]::placeholder{ color:#8a7c6d; }
+  .search-icon{
+    position:absolute; right:2px; bottom:6px;
+    width:16px; height:16px; color:var(--espresso); pointer-events:none;
+  }
+
+  .view-toggle{
+    margin-left:auto;
+    display:flex; align-items:center; gap:14px;
+    padding-bottom:6px;
+  }
+  .view-toggle button{
+    font-family:'TT Commons Pro', sans-serif; font-size:14px; font-weight:600;
+    background:none; cursor:pointer; color:var(--espresso);
+    padding:8px 16px; border-radius:999px; border:1px solid transparent;
+  }
+  .view-toggle button.is-active{ border-color:var(--espresso); }
+  .view-toggle button:not(.is-active){ border:none; text-decoration:underline; text-underline-offset:3px; }
+
+  /* ---------- MAIN CONTENT ---------- */
+  .main{ flex:1 1 auto; display:flex; min-height:0; padding:20px 24px; gap:20px; }
+
+  /* ---------- LEFT: LIST PANEL ---------- */
+  .panel{ width:400px; flex:0 0 auto; overflow-y:auto; }
+  .app.list-view-only .panel{ width:100%; }
+  .app.list-view-only .map-wrap{ display:none; }
+
+  .results-count{ font-size:12px; color:var(--sage); font-weight:600; margin:0 2px 10px; }
+  .status{ padding:20px 10px; font-size:13px; color:#5B4A3D; }
+
+  .card{
+    display:flex; gap:0; background:var(--paper);
+    border-radius:8px; overflow:hidden; margin-bottom:14px; cursor:pointer;
+    box-shadow:var(--shadow);
+    border:2px solid transparent;
+    transition: border-color .15s ease;
+  }
+  .card:hover{ border-color:var(--line); }
+  .card.active{ border-color:var(--rust); }
+  .card.hidden{ display:none; }
+
+  .card-thumb{
+    flex:0 0 auto; width:100px; height:100px;
+    background: linear-gradient(135deg, var(--sage), #4F8577);
+  }
+
+  .card-body{ min-width:0; padding:12px 16px; flex:1 1 auto; }
+  .card-body h3{ font-family:'TT Commons Pro', sans-serif; font-size:17px; font-weight:700; margin:0 0 4px; color:var(--espresso); }
+  .card-address{ font-size:13px; color:#5B4A3D; margin:0 0 4px; line-height:1.3; }
+  .card-type{ font-size:13px; color:var(--linkblue); margin:0; text-decoration:underline; text-underline-offset:2px; }
+
+  /* ---------- RIGHT: MAP ---------- */
+  .map-wrap{ position:relative; flex:1 1 auto; border-radius:8px; overflow:hidden; box-shadow:var(--shadow); }
+  #map{ position:absolute; inset:0; }
+
+  @media (max-width: 900px){
+    .topbar{ flex-wrap:wrap; gap:16px; }
+    .view-toggle{ margin-left:0; width:100%; justify-content:flex-start; }
+    .main{ flex-direction:column; padding:16px; }
+    .panel{ width:100%; max-height:45vh; }
+    .map-wrap{ min-height:45vh; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app" id="app">
+  <div class="topbar">
+    <div class="filter-field">
+      <span class="filter-label">Type</span>
+      <div class="filter-select-wrap" id="typeDropdownWrap">
+        <button type="button" class="dropdown-toggle" id="typeDropdownToggle">
+          <span id="typeDropdownLabel">All</span>
+          <span class="caret"></span>
+        </button>
+        <div class="dropdown-panel" id="typeDropdownPanel">
+          <label class="dropdown-option dropdown-option-all">
+            <input type="checkbox" id="typeAllCheckbox" checked>
+            View All Type Locations
+          </label>
+          <div id="typeDropdownList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-field search-field">
+      <span class="filter-label">Search</span>
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search anything">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="7"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      </div>
+    </div>
+
+    <!-- FIX: these two buttons were referenced in the old script
+         (mapViewBtn / listViewBtn) but never existed in the HTML, so
+         addEventListener() on them threw a null error on load. -->
+  </div>
+
+  <div class="main">
+    <div class="panel">
+      <p class="results-count" id="resultsCount"></p>
+      <div id="list">
+        <div class="status" id="status">Loading coffee shops…</div>
+      </div>
+    </div>
+
+    <div class="map-wrap">
+      <div id="map"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   1) CONFIG — edit everything in this block
+   ========================================================= */
+mapboxgl.accessToken = 'pk.eyJ1IjoiamJyYWluMSIsImEiOiJjbG85MTNmZW8wNW80MnFwbTRiZXJmNGZuIn0.4Ajv4kTvH6rx0ym0AmE-gQ';
+
+// Any standard Mapbox style works fine when using plain circles or
+// script-loaded icons — but since your icons live in this style's Images
+// tab in Studio, MAP_STYLE has to be the style that actually contains them.
+const MAP_STYLE = 'mapbox://styles/jbrain1/cmr0wxc7t004001qj0x3wez6a'; // <-- your Studio style URL
+
+// ---- ArcGIS Online Feature Layer ----
+// This is the REST endpoint for a single layer inside a Feature Service,
+// e.g. from the item's "View" page in ArcGIS Online, or by appending the
+// layer index (usually /0) to the Feature Service URL.
+// Do NOT include /query or a trailing slash.
+const ARCGIS_FEATURE_LAYER_URL = 'https://services1.arcgis.com/TNz8x5gA9YhXLeFQ/arcgis/rest/services/CCD_Coffee_Shops/FeatureServer/0';
+
+// ArcGIS caps how many features one request can return (commonly 1000-2000).
+// fetchAllArcGISFeatures() below pages through resultOffset until it gets
+// a short page back, so you don't silently lose features on a big layer.
+const ARCGIS_PAGE_SIZE = 1000;
+
+// Map these to whatever your ArcGIS layer's actual field names are —
+// check the "Fields" tab on the layer's item page in ArcGIS Online.
+const FIELDS = {
+  name: 'USER_Name',
+  address: 'USER_Addre',
+  businesstype: 'USER_Busin',
+  sortBy: null
+};
+
+const CENTER = [-75.16521799444155, 39.95282316012287];
+const START_ZOOM = 14;
+
+// Your basemap's actual designed coverage area — used to compute how far
+// out someone can zoom before they'd see past your basemap's extent.
+// If you're using a standard Mapbox style (not a custom Studio one),
+// this mostly just controls the initial framing/zoom limits.
+const EXTENT_BOUNDS = new mapboxgl.LngLatBounds(
+  [-75.18094063775753, 39.94444664719215], // southwest
+  [-75.15050000666503, 39.95814186016155]
+);
+
+// Marker styling.
+const SOURCE_ID = 'arcgis-shops';
+const LAYER_ID = 'arcgis-shops-points';
+const SELECTED_KEY_HOLDER = '__none__'; // no shop selected by default
+
+// ---- Custom icons (already in your Studio style) ----
+// These names must match EXACTLY what you named them in Studio's Images
+// tab — check there if you're not certain (case and spacing matter).
+// Nothing needs to be loaded/rasterized here since the images already
+// live inside MAP_STYLE.
+const ICON_NAME_DEFAULT = 'Coffee Mug (1)';   // <-- your unselected-state image name in Studio
+const ICON_NAME_SELECTED = 'Coffee Mug-RED';  // <-- your selected-state image name in Studio
+
+// Studio rasterizes uploaded SVGs to a fixed pixel size on upload, so
+// icon-size here is a fraction of THAT baked size, not something we
+// control from the script. Start around 0.3-0.5 and adjust after seeing
+// how it renders — there's no way to compute the "correct" number without
+// knowing the pixel dimensions Studio generated on upload.
+const ICON_SIZE = 0.15;
+
+/* =========================================================
+   2) MAP SETUP
+   ========================================================= */
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: MAP_STYLE,
+  center: CENTER,
+  zoom: START_ZOOM,
+  minZoom: 11,
+  maxZoom: 18.5,
+  maxBounds: EXTENT_BOUNDS
+});
+map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+const listEl = document.getElementById('list');
+const statusEl = document.getElementById('status');
+const searchInput = document.getElementById('searchInput');
+const typeDropdownWrap = document.getElementById('typeDropdownWrap');
+const typeDropdownToggle = document.getElementById('typeDropdownToggle');
+const typeDropdownLabel = document.getElementById('typeDropdownLabel');
+const typeDropdownPanel = document.getElementById('typeDropdownPanel');
+const typeAllCheckbox = document.getElementById('typeAllCheckbox');
+const typeDropdownList = document.getElementById('typeDropdownList');
+const resultsCount = document.getElementById('resultsCount');
+const appEl = document.getElementById('app');
+const mapViewBtn = document.getElementById('mapViewBtn');
+const listViewBtn = document.getElementById('listViewBtn');
+
+let allShops = [];          // every shop, in list order
+const cards = [];           // card DOM elements, same order as allShops
+const shopIndexByKey = new Map(); // "name|address" -> index in allShops
+let selectedKey = SELECTED_KEY_HOLDER;
+
+function keyFor(shop){
+  return `${(shop.name || '').trim().toLowerCase()}|${(shop.address || '').trim().toLowerCase()}`;
+}
+
+// Pages through the ArcGIS REST API until it gets a short page back,
+// so large layers (more than one page's worth of features) aren't
+// silently truncated. Returns a single merged GeoJSON FeatureCollection.
+async function fetchAllArcGISFeatures(serviceUrl, pageSize = ARCGIS_PAGE_SIZE){
+  let allFeatures = [];
+  let offset = 0;
+
+  while (true) {
+    const url = `${serviceUrl}/query?where=1=1&outFields=*&f=geojson&resultOffset=${offset}&resultRecordCount=${pageSize}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`ArcGIS query failed (${res.status}) for ${serviceUrl}`);
+    }
+    const data = await res.json();
+    if (data.error) {
+      throw new Error(`ArcGIS error: ${data.error.message || JSON.stringify(data.error)}`);
+    }
+    const features = data.features || [];
+    allFeatures = allFeatures.concat(features);
+
+    // A page shorter than the requested size means we've hit the end.
+    if (features.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return { type: 'FeatureCollection', features: allFeatures };
+}
+
+// Converts the raw GeoJSON FeatureCollection into the flat shop objects
+// the list panel / search / filters use, and adds the marker layer.
+async function buildFromGeoJSON(featureCollection){
+  const seen = new Set();
+  let shops = [];
+
+  featureCollection.features.forEach(f => {
+    const p = f.properties || {};
+    const coords = f.geometry && f.geometry.coordinates;
+    if (!coords) return;
+    const shop = {
+      name: p[FIELDS.name] || 'Untitled',
+      address: p[FIELDS.address] || '',
+      businesstype: p[FIELDS.businesstype] || '',
+      lng: coords[0],
+      lat: coords[1]
+    };
+    const key = keyFor(shop);
+    if (seen.has(key)) return; // de-dupe just in case of overlapping pages
+    seen.add(key);
+    shops.push(shop);
+  });
+
+  if (shops.length === 0) {
+    statusEl.textContent = 'No features returned — check ARCGIS_FEATURE_LAYER_URL and FIELDS match your layer.';
+    return;
+  }
+
+  shops.sort((a, b) => {
+    if (FIELDS.sortBy) return (a[FIELDS.sortBy] || '') > (b[FIELDS.sortBy] || '') ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+
+  allShops = shops;
+  allShops.forEach((s, i) => shopIndexByKey.set(keyFor(s), i));
+
+  // GeoJSON source + symbol layer. Icons reference names already baked
+  // into MAP_STYLE via Studio's Images tab, so there's no loading step
+  // needed here — the layer can be added immediately. Everything is
+  // already in memory here, so this renders with the full dataset the
+  // moment it's added — nothing pops in later as you pan/zoom.
+  map.addSource(SOURCE_ID, { type: 'geojson', data: featureCollection });
+  map.addLayer({
+    id: LAYER_ID,
+    type: 'symbol',
+    source: SOURCE_ID,
+    layout: {
+      'icon-image': [
+        'case',
+        ['==', ['concat', ['get', FIELDS.name], '|', ['get', FIELDS.address]], SELECTED_KEY_HOLDER],
+        ICON_NAME_SELECTED,
+        ICON_NAME_DEFAULT
+      ],
+      'icon-size': ICON_SIZE,
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true
+    }
+  });
+
+  map.on('mouseenter', LAYER_ID, () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', LAYER_ID, () => { map.getCanvas().style.cursor = ''; });
+  map.on('click', LAYER_ID, (e) => {
+    const f = e.features && e.features[0];
+    if (!f) return;
+    const p = f.properties || {};
+    const key = keyFor({ name: p[FIELDS.name], address: p[FIELDS.address] });
+    const idx = shopIndexByKey.get(key);
+    if (idx === undefined) return;
+    flyToShop(allShops[idx], idx);
+  });
+
+  // Clicking the map anywhere that isn't a shop marker deselects.
+  map.on('click', (e) => {
+    const hits = map.queryRenderedFeatures(e.point, { layers: [LAYER_ID] });
+    if (hits.length === 0) {
+      deselectAndReset();
+    }
+  });
+
+  statusEl.remove();
+  renderShopsList(allShops);
+  populateTypeFilter(allShops);
+  applyFilters();
+
+  const bounds = new mapboxgl.LngLatBounds();
+  allShops.forEach(s => bounds.extend([s.lng, s.lat]));
+  map.fitBounds(bounds, { padding: 60, duration: 0 });
+}
+
+map.on('load', () => {
+  // Prevents zooming out past the point where the basemap's designed
+  // extent would no longer fill the whole view. Recalculated on resize
+  // since the right zoom level depends on the map container's pixel size.
+  function updateMinZoomFromExtent(){
+    try {
+      const cam = map.cameraForBounds(EXTENT_BOUNDS, { padding: 0 });
+      if (cam && typeof cam.zoom === 'number') {
+        map.setMinZoom(cam.zoom);
+      }
+    } catch (err) {
+      console.error('Could not compute minZoom from EXTENT_BOUNDS:', err);
+    }
+  }
+  updateMinZoomFromExtent();
+  map.on('resize', updateMinZoomFromExtent);
+
+  fetchAllArcGISFeatures(ARCGIS_FEATURE_LAYER_URL)
+    .then(buildFromGeoJSON)
+    .catch(err => {
+      console.error('Could not load ArcGIS Feature Layer:', err);
+      statusEl.textContent = 'Could not load data — check ARCGIS_FEATURE_LAYER_URL and the console for details.';
+    });
+});
+
+function setActive(index){
+  cards.forEach((c, i) => c.classList.toggle('active', i === index));
+
+  const shop = index === null ? null : allShops[index];
+  selectedKey = shop ? `${shop.name}|${shop.address}` : SELECTED_KEY_HOLDER;
+
+  if (map.getLayer(LAYER_ID)) {
+    map.setLayoutProperty(LAYER_ID, 'icon-image', [
+      'case',
+      ['==', ['concat', ['get', FIELDS.name], '|', ['get', FIELDS.address]], selectedKey],
+      ICON_NAME_SELECTED,
+      ICON_NAME_DEFAULT
+    ]);
+  }
+}
+
+function deselectAndReset(){
+  setActive(null);
+  map.fitBounds(EXTENT_BOUNDS, { padding: 0, essential: true, duration: 900 });
+}
+
+function flyToShop(shop, index){
+  map.flyTo({ center: [shop.lng, shop.lat], zoom: 17, essential: true, duration: 900 });
+  setActive(index);
+  cards[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function renderShopsList(shops){
+  shops.forEach((shop, i) => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-thumb"></div>
+      <div class="card-body">
+        <h3>${shop.name}</h3>
+        <p class="card-address">${shop.address}</p>
+      </div>
+    `;
+    card.addEventListener('click', () => flyToShop(shop, i));
+    listEl.appendChild(card);
+    cards.push(card);
+  });
+}
+
+/* =========================================================
+   3) SEARCH + BUSINESS-TYPE FILTER (checkbox dropdown)
+   ========================================================= */
+let allTypes = [];
+let selectedTypes = new Set(); // empty = no filter applied yet, everything shows
+
+function populateTypeFilter(shops){
+  allTypes = [...new Set(shops.map(s => s.businesstype).filter(Boolean))].sort();
+  selectedTypes = new Set(); // start with nothing checked
+
+  typeDropdownList.innerHTML = '';
+  allTypes.forEach(type => {
+    const label = document.createElement('label');
+    label.className = 'dropdown-option';
+    label.innerHTML = `<input type="checkbox" value="${type}"> ${type}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      if (e.target.checked) selectedTypes.add(type);
+      else selectedTypes.delete(type);
+      syncAllCheckbox();
+      updateTypeDropdownLabel();
+      applyFilters();
+    });
+    typeDropdownList.appendChild(label);
+  });
+
+  updateTypeDropdownLabel();
+}
+
+function syncAllCheckbox(){
+  typeAllCheckbox.checked = selectedTypes.size === 0;
+}
+
+function updateTypeDropdownLabel(){
+  if (selectedTypes.size === 0 || selectedTypes.size === allTypes.length) {
+    typeDropdownLabel.textContent = 'All';
+  } else {
+    typeDropdownLabel.textContent = `${selectedTypes.size} selected`;
+  }
+}
+
+// Acts as a reset: checking it clears any active filtering (back to
+// showing everything). It stays checked whenever nothing is selected.
+typeAllCheckbox.addEventListener('change', () => {
+  selectedTypes = new Set();
+  typeDropdownList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.checked = false;
+  });
+  typeAllCheckbox.checked = true;
+  updateTypeDropdownLabel();
+  applyFilters();
+});
+
+typeDropdownToggle.addEventListener('click', () => {
+  const isOpen = typeDropdownPanel.classList.toggle('is-open');
+  typeDropdownToggle.classList.toggle('is-open', isOpen);
+});
+
+// Close the dropdown when clicking anywhere outside it
+document.addEventListener('click', (e) => {
+  if (!typeDropdownWrap.contains(e.target)) {
+    typeDropdownPanel.classList.remove('is-open');
+    typeDropdownToggle.classList.remove('is-open');
+  }
+});
+
+function applyFilters(){
+  const term = searchInput.value.trim().toLowerCase();
+  let visibleCount = 0;
+  const matchKeys = [];
+
+  allShops.forEach((shop, i) => {
+    const matchesTerm = !term ||
+      shop.name.toLowerCase().includes(term) ||
+      shop.address.toLowerCase().includes(term);
+    // Nothing checked = no filter applied = everything matches.
+    const matchesType = selectedTypes.size === 0 || selectedTypes.has(shop.businesstype);
+    const visible = matchesTerm && matchesType;
+
+    cards[i].classList.toggle('hidden', !visible);
+    if (visible) {
+      visibleCount++;
+      matchKeys.push(`${shop.name.toLowerCase()}|${shop.address.toLowerCase()}`);
+    }
+  });
+
+
+  const filterExpr = matchKeys.length === 0
+    ? ['==', ['literal', 1], ['literal', 0]] // hide all
+    : [
+        'in',
+        ['downcase', ['concat', ['get', FIELDS.name], '|', ['get', FIELDS.address]]],
+        ['literal', matchKeys]
+      ];
+
+  if (map.getLayer(LAYER_ID)) {
+    map.setFilter(LAYER_ID, filterExpr);
+  }
+}
+
+searchInput.addEventListener('input', applyFilters);
+
+mapViewBtn.addEventListener('click', () => {
+  appEl.classList.remove('list-view-only');
+  mapViewBtn.classList.add('is-active');
+  listViewBtn.classList.remove('is-active');
+  // The map container was hidden (display:none), so Mapbox needs to be
+  // told its size is valid again now that it's visible.
+  setTimeout(() => map.resize(), 0);
+});
+listViewBtn.addEventListener('click', () => {
+  appEl.classList.add('list-view-only');
+  listViewBtn.classList.add('is-active');
+  mapViewBtn.classList.remove('is-active');
+});
+
+</script>
+</body>
+</html>
