@@ -53,7 +53,7 @@ const CONFIG = {
   },
 
   // ---- Combining chains ----
-  groupWhenMoreThan: 3,
+  groupWhenMoreThan: 1,
 
   sameShop: {
     "Starbucks Coffee": "Starbucks",
@@ -313,8 +313,8 @@ require([
 
   // Business type groups. Shops matching none of them get OTHER, which is
   // never shown as a dropdown choice or printed in the list.
-  const TYPES = CONFIG.businessTypes.map((t) => ({ ...t, values: [].concat(t.values).map(low) }));
-  const OTHER = { label: "", values: [] };
+const TYPES = CONFIG.businessTypes.map((t) => ({ ...t, values: [].concat(t.values).map(low) }));
+ const OTHER = { label: "", values: [] };
   const typeOf = (v) => TYPES.find((t) => t.values.includes(low(v))) || OTHER;
 
   /* ---------- state ---------- */
@@ -566,7 +566,7 @@ require([
 
   function detailsHtml(r) {
     if (!r.grouped) {
-      const rows = [row("Address", esc(r.address || "Address not listed"))];
+      const rows = [];
       if (r.description) rows.push(row("About", `<span class="desc">${esc(r.description)}</span>`));
       if (r.website) rows.push(row("Website", siteLink(r.website)));
       if (r.phone) rows.push(row("Phone", phoneLink(r.phone)));
@@ -585,8 +585,7 @@ require([
 
   function cardHtml(r) {
     // The business type is left off when the shop matches no configured type.
-    const sub = [r.grouped ? `${r.locs.length} locations` : (r.address || "Address not listed"),
-      r.type.label].filter(Boolean).join(", ");
+    const sub = r.grouped ? `${r.locs.length} locations` : (r.address || "Address not listed");
     const open = expanded.has(r.id);
     const bodyId = `details-${esc(r.id)}`;
     return `<article class="card" data-id="${esc(r.id)}" aria-current="${r.id === selectedId}">
