@@ -1,613 +1,850 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Philly Coffee Map</title>
-<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.css">
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Coffee Trail | Center City District</title>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- ArcGIS Maps SDK for JavaScript -->
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<script src="https://js.arcgis.com/4.30/"></script>
+
+<script>
+/* =====================================================================
+   CONFIG: this is the only section you should need to edit.
+   Open the browser console (F12) on first load: the page prints every
+   layer in the web map, the fields on the coffee shop layer, and any
+   business type values that don't match a filter below.
+   ===================================================================== */
+const CONFIG = {
+
+  center: [-75.1635, 39.9515],   // [longitude, latitude]
+  zoom: 15,
+
+  // ---- Where the data comes from ----
+  portalUrl: "https://ccdphila.maps.arcgis.com",
+  webMapId: "ac71aa5f41584c8599d31a44d46da8e7",
+
+  // Which layer in the web map holds the coffee shops: any part of its
+  // title, case doesn't matter. Leave blank to use the first layer that
+  // has the name field below.
+  layerTitle: "",
+
+  // Optional SQL filter on the coffee shop layer, e.g. "USER_Busin <> 'Closed'".
+  where: "",
+
+  // ---- Coffee shop fields ----
+  fields: {
+    name:         "USER_Name",
+    address:      "USER_Addre",
+    businessType: "USER_Busin",   // the field holding Independent / Local / National
+    website:      "Website",
+    phone:        "PhoneNumber",
+    description:  "Description1"
+  },
+
+  photos: {
+    field: "",
+    thumbWidth: 400
+  },
+
+  // ---- Combining chains ----
+  groupWhenMoreThan: 3,
+
+  sameShop: {
+    "Starbucks Coffee": "Starbucks",
+    "Dunkin Donuts": "Dunkin"
+  },
+
+  // ---- Business types ----
+  // Each entry is one choice in the "Business type" dropdown. A shop belongs
+  // to an entry when its business type matches ANY value in the list (case
+  // and extra spaces are ignored). Shops that match none of these are still
+  // listed and shown under "All business types", but no type is printed for them.
+  businessTypes: [
+    { label: "Independent",    values: ["Independent"] },
+    { label: "Local chain",    values: ["Local Chain", "Local", "Regional Chain", "Regional"] },
+    { label: "National chain", values: ["National Chain", "National"] }
+  ],
+
+  // ---- Selected shop icon ----
+  // The icon that replaces a shop's normal map symbol while it's selected.
+  // Leave url blank to use the built-in pin in the color below, or set url to
+  // an image (PNG or SVG) of your own. yoffset lifts the icon so its bottom
+  // tip sits on the location; use 0 for an icon that should be centered.
+  selectedIcon: {
+    url: "",
+    color: "#E15928",
+    width: 28,
+    height: 40,
+    yoffset: 20
+  },
+
+  returnHomeOnDeselect: true,
+  smoothMotion: false
+};
+/* ===================================================================== */
+</script>
+
 <style>
-  :root{
-    --espresso:#2B1B12;
-    --cream:#F1EAE0;
-    --paper:#FFFFFF;
-    --rust:#B5622A;
-    --sage:#6E7F5C;
-    --line:#E3D8C4;
-    --linkblue:#2B5C8A;
-    --shadow: 0 2px 10px rgba(43,27,18,0.08);
+  :root {
+    --ink: #1c2a33;
+    --muted: #5b6b73;
+    --paper: #ffffff;
+    --mist: #f2f5f4;
+    --line: #dde3e1;
+    --field: #c9d2cf;
+    --teal: #0f9a8e;
+    --teal-ink: #0b6f66;
+    --select: #e6f4f2;
+    --here: #fff4d6;
   }
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;height:100%;overflow:hidden;}
-  body{ font-family:'TT Commons Pro', sans-serif; background:var(--cream); color:var(--espresso); }
-
-  .app{
-    position:fixed;
-    inset:0;
-    display:flex;
-    flex-direction:column;
-    overflow:hidden;
-  }
-
-  /* ---------- TOP FILTER BAR ---------- */
-  .topbar{
-    display:flex;
-    align-items:flex-end;
-    gap:32px;
-    padding:18px 24px;
-    background:var(--cream);
-    border-bottom:1px solid var(--line);
-    flex:0 0 auto;
-  }
-  .filter-field{ display:flex; flex-direction:column; gap:6px; }
-  .filter-label{
-    font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
-    color:var(--espresso);
-  }
-  .filter-select-wrap{ position:relative; }
-  .dropdown-toggle{
-    display:flex; align-items:center; gap:6px;
-    border:none; border-bottom:1px solid var(--espresso);
-    background:transparent; padding:2px 4px 6px 0;
-    font-family:'TT Commons Pro', sans-serif; font-size:14px; color:var(--linkblue);
-    cursor:pointer; min-width:90px; text-align:left;
-  }
-  .dropdown-toggle .caret{
-    margin-left:auto; width:0; height:0;
-    border-left:5px solid transparent; border-right:5px solid transparent;
-    border-top:6px solid var(--espresso);
-    transition: transform .15s ease;
-  }
-  .dropdown-toggle.is-open .caret{ transform: rotate(180deg); }
-
-  .dropdown-panel{
-    display:none;
-    position:absolute; top:100%; left:0; margin-top:6px;
-    background:var(--paper); border:1px solid var(--line); border-radius:4px;
-    box-shadow:0 8px 24px rgba(43,27,18,0.18);
-    width:240px; max-height:280px; overflow-y:auto;
-    z-index:20; padding:4px 0;
-  }
-  .dropdown-panel.is-open{ display:block; }
-
-  .dropdown-option{
-    display:flex; align-items:center; gap:10px;
-    padding:8px 14px; font-size:13.5px; color:var(--espresso);
-    cursor:pointer; white-space:nowrap;
-  }
-  .dropdown-option:hover{ background:var(--cream); }
-  .dropdown-option input[type="checkbox"]{
-    width:15px; height:15px; accent-color:var(--espresso); cursor:pointer; flex:0 0 auto;
-  }
-  .dropdown-option-all{ font-weight:600; border-bottom:1px solid var(--line); margin-bottom:2px; }
-
-  .search-field{ flex:1 1 auto; max-width:320px; }
-  .search-box{ position:relative; }
-  .search-box input[type="text"]{
-    width:100%; border:none; border-bottom:1px solid var(--espresso);
-    background:transparent; padding:2px 26px 6px 0;
-    font-family:'TT Commons Pro', sans-serif; font-size:14px; color:var(--espresso);
-  }
-  .search-box input[type="text"]:focus{ outline:none; }
-  .search-box input[type="text"]::placeholder{ color:#8a7c6d; }
-  .search-icon{
-    position:absolute; right:2px; bottom:6px;
-    width:16px; height:16px; color:var(--espresso); pointer-events:none;
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--ink);
+    background: var(--paper);
   }
 
-  .view-toggle{
-    margin-left:auto;
-    display:flex; align-items:center; gap:14px;
-    padding-bottom:6px;
+  .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+
+  .topbar {
+    display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+    gap: 4px 16px; padding: 14px 20px; border-bottom: 1px solid var(--line);
   }
-  .view-toggle button{
-    font-family:'TT Commons Pro', sans-serif; font-size:14px; font-weight:600;
-    background:none; cursor:pointer; color:var(--espresso);
-    padding:8px 16px; border-radius:999px; border:1px solid transparent;
-  }
-  .view-toggle button.is-active{ border-color:var(--espresso); }
-  .view-toggle button:not(.is-active){ border:none; text-decoration:underline; text-underline-offset:3px; }
+  .topbar h1 { margin: 0; font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; }
+  .count { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-  /* ---------- MAIN CONTENT ---------- */
-  .main{ flex:1 1 auto; display:flex; min-height:0; padding:20px 24px; gap:20px; }
+  .layout { display: grid; grid-template-columns: clamp(400px, 40%, 600px) 1fr; min-height: 0; }
 
-  /* ---------- LEFT: LIST PANEL ---------- */
-  .panel{ width:400px; flex:0 0 auto; overflow-y:auto; }
-  .app.list-view-only .panel{ width:100%; }
-  .app.list-view-only .map-wrap{ display:none; }
-
-  .results-count{ font-size:12px; color:var(--sage); font-weight:600; margin:0 2px 10px; }
-  .status{ padding:20px 10px; font-size:13px; color:#5B4A3D; }
-
-  .card{
-    display:flex; gap:0; background:var(--paper);
-    border-radius:8px; overflow:hidden; margin-bottom:14px; cursor:pointer;
-    box-shadow:var(--shadow);
-    border:2px solid transparent;
-    transition: border-color .15s ease;
-  }
-  .card:hover{ border-color:var(--line); }
-  .card.active{ border-color:var(--rust); }
-  .card.hidden{ display:none; }
-
-  .card-thumb{
-    flex:0 0 auto; width:100px; height:100px;
-    background: linear-gradient(135deg, var(--sage), #4F8577);
+  .panel {
+    display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+    border-right: 1px solid var(--line); background: var(--paper);
   }
 
-  .card-body{ min-width:0; padding:12px 16px; flex:1 1 auto; }
-  .card-body h3{ font-family:'TT Commons Pro', sans-serif; font-size:17px; font-weight:700; margin:0 0 4px; color:var(--espresso); }
-  .card-address{ font-size:13px; color:#5B4A3D; margin:0 0 4px; line-height:1.3; }
-  .card-type{ font-size:13px; color:var(--linkblue); margin:0; text-decoration:underline; text-underline-offset:2px; }
+  /* Filters */
+  .filters {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 16px 20px;
+    background: var(--mist); border-bottom: 1px solid var(--line);
+  }
+  .field > span {
+    display: block; margin: 0 0 5px;
+    font-size: 0.8rem; font-weight: 600; color: var(--muted);
+  }
+  input, select {
+    width: 100%; padding: 8px 10px; font: inherit; color: var(--ink);
+    background: #fff; border: 1px solid var(--field); border-radius: 6px;
+  }
+  select {
+    appearance: none; padding-right: 32px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%235b6b73' stroke-width='1.8'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 11px center;
+  }
+  input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible {
+    outline: 2px solid var(--teal); outline-offset: 2px;
+  }
 
-  /* ---------- RIGHT: MAP ---------- */
-  .map-wrap{ position:relative; flex:1 1 auto; border-radius:8px; overflow:hidden; box-shadow:var(--shadow); }
-  #map{ position:absolute; inset:0; }
+  .filter-foot { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+  .link-btn {
+    padding: 0; font: inherit; font-weight: 600; color: var(--teal-ink); cursor: pointer;
+    background: none; border: 0; text-decoration: underline; text-underline-offset: 2px;
+  }
 
-  @media (max-width: 900px){
-    .topbar{ flex-wrap:wrap; gap:16px; }
-    .view-toggle{ margin-left:0; width:100%; justify-content:flex-start; }
-    .main{ flex-direction:column; padding:16px; }
-    .panel{ width:100%; max-height:45vh; }
-    .map-wrap{ min-height:45vh; }
+  /* List */
+  .list { flex: 1 0 auto; margin: 0; padding: 0; list-style: none; }
+  .card {
+    display: grid; grid-template-columns: 76px 1fr; gap: 14px; align-items: start;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+  }
+  .card[aria-current="true"] { background: var(--select); box-shadow: inset 3px 0 0 var(--teal); }
+  .thumb {
+    width: 76px; aspect-ratio: 1; overflow: hidden;
+    background: var(--mist); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .list.no-photos .card { grid-template-columns: 1fr; }
+  .list.no-photos .thumb { display: none; }
+  .card-main { min-width: 0; }
+  .card .ttl { display: block; font-size: 1rem; font-weight: 600; }
+  .card .sub { display: block; margin: 2px 0 0; font-size: 0.875rem; color: var(--muted); }
+
+  .card .more {
+    display: inline-block; margin-top: 10px; padding: 0;
+    font: inherit; font-size: 0.875rem; font-weight: 600; color: var(--teal-ink);
+    cursor: pointer; background: none; border: 0;
+  }
+  .card .more:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+  .more-body { margin-top: 8px; }
+  .more-body dl {
+    display: grid; grid-template-columns: max-content 1fr; gap: 5px 16px;
+    margin: 0 0 12px; font-size: 0.9rem;
+  }
+  .more-body dt { color: var(--muted); font-size: 0.85rem; }
+  .more-body dd { margin: 0; overflow-wrap: anywhere; }
+  .more-body a { color: var(--teal-ink); font-weight: 600; }
+  .more-body .desc { margin: 0 0 12px; font-size: 0.9rem; white-space: pre-line; }
+  .more-body h3 { margin: 14px 0 6px; font-size: 0.9rem; }
+
+  /* Locations of a combined chain */
+  .locs { margin: 0 0 6px; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+  .locs li {
+    display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: baseline;
+    padding: 7px 8px; font-size: 0.9rem; border-bottom: 1px solid var(--line);
+  }
+  .locs li.here { background: var(--here); }
+  .locs .ph { grid-column: 1; color: var(--muted); font-size: 0.85rem; }
+  .locs .go {
+    grid-column: 2; grid-row: 1; padding: 0; font: inherit; font-size: 0.8rem; font-weight: 600;
+    color: var(--teal-ink); cursor: pointer; background: none; border: 0; white-space: nowrap;
+  }
+  .locs .go:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+  .empty { padding: 28px 20px; color: var(--muted); }
+  .empty p { margin: 0 0 8px; }
+
+  .map { height: 100%; min-height: 0; }
+
+  @media (max-width: 820px) {
+    html, body, .app { height: auto; }
+    .layout { grid-template-columns: 1fr; }
+    .filters { grid-template-columns: 1fr; }
+    .map { order: -1; height: 46vh; }
+    .panel { border-right: 0; overflow: visible; }
+    .card { grid-template-columns: 64px 1fr; gap: 12px; }
+    .thumb { width: 64px; }
   }
 </style>
 </head>
+
 <body>
+<div class="app">
+  <header class="topbar">
+    <h1 id="title"></h1>
+    <p class="count" id="count" aria-live="polite">Loading coffee shops…</p>
+  </header>
 
-<div class="app" id="app">
-  <div class="topbar">
-    <div class="filter-field">
-      <span class="filter-label">Type</span>
-      <div class="filter-select-wrap" id="typeDropdownWrap">
-        <button type="button" class="dropdown-toggle" id="typeDropdownToggle">
-          <span id="typeDropdownLabel">All</span>
-          <span class="caret"></span>
-        </button>
-        <div class="dropdown-panel" id="typeDropdownPanel">
-          <label class="dropdown-option dropdown-option-all">
-            <input type="checkbox" id="typeAllCheckbox" checked>
-            View All Type Locations
-          </label>
-          <div id="typeDropdownList"></div>
+  <main class="layout">
+    <aside class="panel" id="panel">
+      <section class="filters" aria-label="Filter coffee shops">
+        <label class="field">
+          <span>Search by name</span>
+          <input id="search" type="search" placeholder="e.g. La Colombe" autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span>Business type</span>
+          <select id="type">
+            <option value="">All business types</option>
+          </select>
+        </label>
+
+        <div class="filter-foot">
+          <button class="link-btn" id="reset" type="button">Clear filters</button>
         </div>
-      </div>
-    </div>
+      </section>
 
-    <div class="filter-field search-field">
-      <span class="filter-label">Search</span>
-      <div class="search-box">
-        <input type="text" id="searchInput" placeholder="Search anything">
-        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="7"></circle>
-          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-        </svg>
-      </div>
-    </div>
+      <ol class="list" id="list" aria-label="Coffee shops"></ol>
+    </aside>
 
-    <!-- FIX: these two buttons were referenced in the old script
-         (mapViewBtn / listViewBtn) but never existed in the HTML, so
-         addEventListener() on them threw a null error on load. -->
-  </div>
-
-  <div class="main">
-    <div class="panel">
-      <p class="results-count" id="resultsCount"></p>
-      <div id="list">
-        <div class="status" id="status">Loading coffee shops…</div>
-      </div>
-    </div>
-
-    <div class="map-wrap">
-      <div id="map"></div>
-    </div>
-  </div>
+    <div class="map" id="map" role="region" aria-label="Map of coffee shops"></div>
+  </main>
 </div>
 
 <script>
-/* =========================================================
-   1) CONFIG — edit everything in this block
-   ========================================================= */
-mapboxgl.accessToken = 'pk.eyJ1IjoiamJyYWluMSIsImEiOiJjbG85MTNmZW8wNW80MnFwbTRiZXJmNGZuIn0.4Ajv4kTvH6rx0ym0AmE-gQ';
+require([
+  "esri/config",
+  "esri/WebMap",
+  "esri/views/MapView",
+  "esri/layers/GraphicsLayer",
+  "esri/Graphic",
+  "esri/symbols/PictureMarkerSymbol"
+], function (esriConfig, WebMap, MapView, GraphicsLayer, Graphic, PictureMarkerSymbol) {
 
-// Any standard Mapbox style works fine when using plain circles or
-// script-loaded icons — but since your icons live in this style's Images
-// tab in Studio, MAP_STYLE has to be the style that actually contains them.
-const MAP_STYLE = 'mapbox://styles/jbrain1/cmr0wxc7t004001qj0x3wez6a'; // <-- your Studio style URL
+  // Public page: never show a Portal sign-in window.
+  esriConfig.request.useIdentity = false;
 
-// ---- ArcGIS Online Feature Layer ----
-// This is the REST endpoint for a single layer inside a Feature Service,
-// e.g. from the item's "View" page in ArcGIS Online, or by appending the
-// layer index (usually /0) to the Feature Service URL.
-// Do NOT include /query or a trailing slash.
-const ARCGIS_FEATURE_LAYER_URL = 'https://services1.arcgis.com/TNz8x5gA9YhXLeFQ/arcgis/rest/services/CCD_Coffee_Shops/FeatureServer/0';
+  const F = CONFIG.fields;
+  const reduceMotion = !CONFIG.smoothMotion ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// ArcGIS caps how many features one request can return (commonly 1000-2000).
-// fetchAllArcGISFeatures() below pages through resultOffset until it gets
-// a short page back, so you don't silently lose features on a big layer.
-const ARCGIS_PAGE_SIZE = 1000;
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    title: $("title"), count: $("count"), panel: $("panel"), search: $("search"),
+    type: $("type"), reset: $("reset"), list: $("list")
+  };
+  if (CONFIG.title) els.title.textContent = CONFIG.title;
+  else els.title.hidden = true;
 
-// Map these to whatever your ArcGIS layer's actual field names are —
-// check the "Fields" tab on the layer's item page in ArcGIS Online.
-const FIELDS = {
-  name: 'USER_Name',
-  address: 'USER_Addre',
-  businesstype: 'USER_Busin',
-  sortBy: null
-};
+  /* ---------- helpers ---------- */
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const str = (v) => (v == null ? "" : String(v).trim());
+  const low = (v) => str(v).toLowerCase().replace(/\s+/g, " ");
+  const norm = (v) => low(v).replace(/&/g, " and ").replace(/['’`.]/g, "")
+    .replace(/[^a-z0-9]+/g, " ").trim();
+  const byAddress = (a, b) => a.address.localeCompare(b.address, "en", { numeric: true });
 
-const CENTER = [-75.16521799444155, 39.95282316012287];
-const START_ZOOM = 14;
+  function websiteUrl(v) {
+    if (!v) return "";
+    if (/^https?:\/\//i.test(v)) return v;
+    return /^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(v) ? `https://${v}` : "";
+  }
+  const telHref = (p) => "tel:" + p.replace(/[^\d+]/g, "");
+  const linkText = (u) => u.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "");
 
-// Your basemap's actual designed coverage area — used to compute how far
-// out someone can zoom before they'd see past your basemap's extent.
-// If you're using a standard Mapbox style (not a custom Studio one),
-// this mostly just controls the initial framing/zoom limits.
-const EXTENT_BOUNDS = new mapboxgl.LngLatBounds(
-  [-75.18094063775753, 39.94444664719215], // southwest
-  [-75.15050000666503, 39.95814186016155]
-);
-
-// Marker styling.
-const SOURCE_ID = 'arcgis-shops';
-const LAYER_ID = 'arcgis-shops-points';
-const SELECTED_KEY_HOLDER = '__none__'; // no shop selected by default
-
-// ---- Custom icons (already in your Studio style) ----
-// These names must match EXACTLY what you named them in Studio's Images
-// tab — check there if you're not certain (case and spacing matter).
-// Nothing needs to be loaded/rasterized here since the images already
-// live inside MAP_STYLE.
-const ICON_NAME_DEFAULT = 'Coffee Mug (1)';   // <-- your unselected-state image name in Studio
-const ICON_NAME_SELECTED = 'Coffee Mug-RED';  // <-- your selected-state image name in Studio
-
-// Studio rasterizes uploaded SVGs to a fixed pixel size on upload, so
-// icon-size here is a fraction of THAT baked size, not something we
-// control from the script. Start around 0.3-0.5 and adjust after seeing
-// how it renders — there's no way to compute the "correct" number without
-// knowing the pixel dimensions Studio generated on upload.
-const ICON_SIZE = 0.15;
-
-/* =========================================================
-   2) MAP SETUP
-   ========================================================= */
-const map = new mapboxgl.Map({
-  container: 'map',
-  style: MAP_STYLE,
-  center: CENTER,
-  zoom: START_ZOOM,
-  minZoom: 11,
-  maxZoom: 18.5,
-  maxBounds: EXTENT_BOUNDS
-});
-map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-
-const listEl = document.getElementById('list');
-const statusEl = document.getElementById('status');
-const searchInput = document.getElementById('searchInput');
-const typeDropdownWrap = document.getElementById('typeDropdownWrap');
-const typeDropdownToggle = document.getElementById('typeDropdownToggle');
-const typeDropdownLabel = document.getElementById('typeDropdownLabel');
-const typeDropdownPanel = document.getElementById('typeDropdownPanel');
-const typeAllCheckbox = document.getElementById('typeAllCheckbox');
-const typeDropdownList = document.getElementById('typeDropdownList');
-const resultsCount = document.getElementById('resultsCount');
-const appEl = document.getElementById('app');
-const mapViewBtn = document.getElementById('mapViewBtn');
-const listViewBtn = document.getElementById('listViewBtn');
-
-let allShops = [];          // every shop, in list order
-const cards = [];           // card DOM elements, same order as allShops
-const shopIndexByKey = new Map(); // "name|address" -> index in allShops
-let selectedKey = SELECTED_KEY_HOLDER;
-
-function keyFor(shop){
-  return `${(shop.name || '').trim().toLowerCase()}|${(shop.address || '').trim().toLowerCase()}`;
-}
-
-// Pages through the ArcGIS REST API until it gets a short page back,
-// so large layers (more than one page's worth of features) aren't
-// silently truncated. Returns a single merged GeoJSON FeatureCollection.
-async function fetchAllArcGISFeatures(serviceUrl, pageSize = ARCGIS_PAGE_SIZE){
-  let allFeatures = [];
-  let offset = 0;
-
-  while (true) {
-    const url = `${serviceUrl}/query?where=1=1&outFields=*&f=geojson&resultOffset=${offset}&resultRecordCount=${pageSize}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`ArcGIS query failed (${res.status}) for ${serviceUrl}`);
-    }
-    const data = await res.json();
-    if (data.error) {
-      throw new Error(`ArcGIS error: ${data.error.message || JSON.stringify(data.error)}`);
-    }
-    const features = data.features || [];
-    allFeatures = allFeatures.concat(features);
-
-    // A page shorter than the requested size means we've hit the end.
-    if (features.length < pageSize) break;
-    offset += pageSize;
+  function mostCommon(list) {
+    const m = new Map();
+    list.filter(Boolean).forEach((v) => m.set(v, (m.get(v) || 0) + 1));
+    let best = "", n = 0;
+    m.forEach((c, v) => { if (c > n) { best = v; n = c; } });
+    return best;
   }
 
-  return { type: 'FeatureCollection', features: allFeatures };
-}
+  const ALIASES = new Map(Object.entries(CONFIG.sameShop || {}).map(([k, v]) => [norm(k), str(v)]));
+  const shopKey = (name) => norm(ALIASES.get(norm(name)) || name);
 
-// Converts the raw GeoJSON FeatureCollection into the flat shop objects
-// the list panel / search / filters use, and adds the marker layer.
-async function buildFromGeoJSON(featureCollection){
-  const seen = new Set();
-  let shops = [];
+  // Business type groups. Shops matching none of them get OTHER, which is
+  // never shown as a dropdown choice or printed in the list.
+  const TYPES = CONFIG.businessTypes.map((t) => ({ ...t, values: [].concat(t.values).map(low) }));
+  const OTHER = { label: "", values: [] };
+  const typeOf = (v) => TYPES.find((t) => t.values.includes(low(v))) || OTHER;
 
-  featureCollection.features.forEach(f => {
-    const p = f.properties || {};
-    const coords = f.geometry && f.geometry.coordinates;
-    if (!coords) return;
-    const shop = {
-      name: p[FIELDS.name] || 'Untitled',
-      address: p[FIELDS.address] || '',
-      businesstype: p[FIELDS.businesstype] || '',
-      lng: coords[0],
-      lat: coords[1]
-    };
-    const key = keyFor(shop);
-    if (seen.has(key)) return; // de-dupe just in case of overlapping pages
-    seen.add(key);
-    shops.push(shop);
+  /* ---------- state ---------- */
+  const state = { q: "", type: "" };
+  let records = [], filtered = [], byId = new Map(), recordByOid = new Map();
+  let layer = null, layerView = null, selectedId = null;
+  const expanded = new Set();
+
+  /* ---------- map ---------- */
+  const webMap = new WebMap({ portalItem: { id: CONFIG.webMapId, portal: { url: CONFIG.portalUrl } } });
+
+  const view = new MapView({
+    container: "map",
+    map: webMap,
+    center: CONFIG.center,
+    zoom: CONFIG.zoom,
+    constraints: { minZoom: 11 },
+    popupEnabled: false
   });
 
-  if (shops.length === 0) {
-    statusEl.textContent = 'No features returned — check ARCGIS_FEATURE_LAYER_URL and FIELDS match your layer.';
-    return;
+  /* ---------- selected shop icon ---------- */
+  // The selected shop's normal symbol is hidden and this icon is drawn in
+  // its place, on a layer above the coffee shops.
+  const selectionLayer = new GraphicsLayer({ title: "Selected coffee shop", listMode: "hide" });
+
+  const SI = CONFIG.selectedIcon || {};
+  function pinUrl(color) {
+    const svg = `<svg xmlns="Coffee Mug-RED (1).svg" width="28" height="40" viewBox="0 0 28 40">
+      <path d="M14 1.5C7.1 1.5 1.5 7.1 1.5 14c0 9.4 12.5 24.5 12.5 24.5S26.5 23.4 26.5 14C26.5 7.1 20.9 1.5 14 1.5z"
+        fill="${color}" stroke="#fff" stroke-width="2.5"/>
+      <circle cx="14" cy="14" r="5" fill="#fff"/></svg>`;
+    return "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
   }
-
-  shops.sort((a, b) => {
-    if (FIELDS.sortBy) return (a[FIELDS.sortBy] || '') > (b[FIELDS.sortBy] || '') ? 1 : -1;
-    return a.name.localeCompare(b.name);
+  const selectedSymbol = new PictureMarkerSymbol({
+    url: SI.url || pinUrl(SI.color || "#E15928"),
+    width: SI.width || 28,
+    height: SI.height || 40,
+    yoffset: SI.yoffset ?? (SI.url ? 0 : 20)
   });
 
-  allShops = shops;
-  allShops.forEach((s, i) => shopIndexByKey.set(keyFor(s), i));
+  /* ---------- photos ---------- */
+  const P = CONFIG.photos || {};
+  const isImage = (a) =>
+    /^image\//i.test(a.contentType || "") || /\.(jpe?g|png|gif|webp)$/i.test(a.name || "");
 
-  // GeoJSON source + symbol layer. Icons reference names already baked
-  // into MAP_STYLE via Studio's Images tab, so there's no loading step
-  // needed here — the layer can be added immediately. Everything is
-  // already in memory here, so this renders with the full dataset the
-  // moment it's added — nothing pops in later as you pan/zoom.
-  map.addSource(SOURCE_ID, { type: 'geojson', data: featureCollection });
-  map.addLayer({
-    id: LAYER_ID,
-    type: 'symbol',
-    source: SOURCE_ID,
-    layout: {
-      'icon-image': [
-        'case',
-        ['==', ['concat', ['get', FIELDS.name], '|', ['get', FIELDS.address]], SELECTED_KEY_HOLDER],
-        ICON_NAME_SELECTED,
-        ICON_NAME_DEFAULT
-      ],
-      'icon-size': ICON_SIZE,
-      'icon-allow-overlap': true,
-      'icon-ignore-placement': true
+  async function loadPhotos() {
+    if (P.field) return;
+    const caps = layer.capabilities || {};
+    if (!(caps.data && caps.data.supportsAttachment)) {
+      console.info("This layer has no attachments, so no photos are shown. " +
+        "If photos are links in a field, set CONFIG.photos.field.");
+      return;
     }
-  });
+    const resize = !!(caps.attachment && caps.attachment.supportsResize) && Number(P.thumbWidth) > 0;
+    const sized = (url) => resize ? `${url}${url.includes("?") ? "&" : "?"}w=${Number(P.thumbWidth)}` : url;
 
-  map.on('mouseenter', LAYER_ID, () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', LAYER_ID, () => { map.getCanvas().style.cursor = ''; });
-  map.on('click', LAYER_ID, (e) => {
-    const f = e.features && e.features[0];
-    if (!f) return;
-    const p = f.properties || {};
-    const key = keyFor({ name: p[FIELDS.name], address: p[FIELDS.address] });
-    const idx = shopIndexByKey.get(key);
-    if (idx === undefined) return;
-    flyToShop(allShops[idx], idx);
-  });
-
-  // Clicking the map anywhere that isn't a shop marker deselects.
-  map.on('click', (e) => {
-    const hits = map.queryRenderedFeatures(e.point, { layers: [LAYER_ID] });
-    if (hits.length === 0) {
-      deselectAndReset();
-    }
-  });
-
-  statusEl.remove();
-  renderShopsList(allShops);
-  populateTypeFilter(allShops);
-  applyFilters();
-
-  const bounds = new mapboxgl.LngLatBounds();
-  allShops.forEach(s => bounds.extend([s.lng, s.lat]));
-  map.fitBounds(bounds, { padding: 60, duration: 0 });
-}
-
-map.on('load', () => {
-  // Prevents zooming out past the point where the basemap's designed
-  // extent would no longer fill the whole view. Recalculated on resize
-  // since the right zoom level depends on the map container's pixel size.
-  function updateMinZoomFromExtent(){
-    try {
-      const cam = map.cameraForBounds(EXTENT_BOUNDS, { padding: 0 });
-      if (cam && typeof cam.zoom === 'number') {
-        map.setMinZoom(cam.zoom);
+    const need = records.filter((r) => !r.photo);
+    const oids = [...new Set(need.flatMap((r) => r.oids.slice(0, 5)))];
+    const found = new Map();
+    for (let i = 0; i < oids.length; i += 100) {
+      try {
+        const res = await layer.queryAttachments({ objectIds: oids.slice(i, i + 100) });
+        Object.entries(res).forEach(([oid, infos]) => {
+          const img = (infos || []).find(isImage);
+          if (img) found.set(String(oid), sized(img.url));
+        });
+      } catch (err) {
+        console.warn("Some photos couldn't be loaded.", err);
       }
-    } catch (err) {
-      console.error('Could not compute minZoom from EXTENT_BOUNDS:', err);
+    }
+    need.forEach((r) => {
+      const oid = r.oids.slice(0, 5).find((o) => found.has(String(o)));
+      if (oid != null) r.photo = found.get(String(oid));
+    });
+  }
+
+  const thumbHtml = (r) => `<span class="thumb">${r.photo
+    ? `<img src="${esc(r.photo)}" alt="" loading="lazy" decoding="async">` : ""}</span>`;
+
+  function patchPhotos() {
+    els.list.classList.toggle("no-photos", !records.some((r) => r.photo));
+    els.list.querySelectorAll(".card").forEach((c) => {
+      const r = byId.get(c.dataset.id);
+      const box = c.querySelector(".thumb");
+      if (r && r.photo && box && !box.firstChild) box.outerHTML = thumbHtml(r);
+    });
+  }
+
+  els.list.addEventListener("error", (e) => {
+    if (e.target.tagName === "IMG" && e.target.closest(".thumb")) e.target.remove();
+  }, true);
+
+  function setLayerVisible(lyr) {
+    lyr.visible = true;
+    let p = lyr.parent;
+    while (p && p.type === "group") { p.visible = true; p = p.parent; }
+  }
+
+  async function findCoffeeLayer() {
+    const bm = webMap.basemap;
+    const base = new Set(bm ? bm.baseLayers.toArray().concat(bm.referenceLayers.toArray()) : []);
+    const all = webMap.allLayers.toArray().filter((l) => !base.has(l));
+    console.info("Layers in the web map:");
+    console.table(all.map((l) => ({ title: l.title, type: l.type, url: l.url || "", layerId: l.layerId })));
+
+    const feats = all.filter((l) => l.type === "feature");
+    const want = low(CONFIG.layerTitle);
+    if (want) return feats.find((l) => low(l.title).includes(want)) || null;
+    for (const l of feats) {
+      try { await l.load(); } catch (e) { continue; }
+      if ((l.fields || []).some((f) => f.name === F.name)) return l;
+    }
+    return null;
+  }
+
+  function checkFields(lyr) {
+    const names = new Set((lyr.fields || []).map((f) => f.name));
+    console.info(`Fields on "${lyr.title}":`, [...names].join(", "));
+    const missing = Object.entries(F).filter(([, f]) => f && !names.has(f));
+    if (missing.length) {
+      console.warn("These configured fields don't exist: " +
+        missing.map(([k, f]) => `${k} → "${f}"`).join(", "));
     }
   }
-  updateMinZoomFromExtent();
-  map.on('resize', updateMinZoomFromExtent);
 
-  fetchAllArcGISFeatures(ARCGIS_FEATURE_LAYER_URL)
-    .then(buildFromGeoJSON)
-    .catch(err => {
-      console.error('Could not load ArcGIS Feature Layer:', err);
-      statusEl.textContent = 'Could not load data — check ARCGIS_FEATURE_LAYER_URL and the console for details.';
-    });
-});
-
-function setActive(index){
-  cards.forEach((c, i) => c.classList.toggle('active', i === index));
-
-  const shop = index === null ? null : allShops[index];
-  selectedKey = shop ? `${shop.name}|${shop.address}` : SELECTED_KEY_HOLDER;
-
-  if (map.getLayer(LAYER_ID)) {
-    map.setLayoutProperty(LAYER_ID, 'icon-image', [
-      'case',
-      ['==', ['concat', ['get', FIELDS.name], '|', ['get', FIELDS.address]], selectedKey],
-      ICON_NAME_SELECTED,
-      ICON_NAME_DEFAULT
-    ]);
+  async function loadAll(lyr) {
+    const caps = lyr.capabilities && lyr.capabilities.query;
+    const paging = !!(caps && caps.supportsPagination);
+    const pageSize = (caps && caps.maxRecordCount) || 1000;
+    const all = [];
+    let start = 0;
+    while (true) {
+      const q = lyr.createQuery();
+      if (!q.where) q.where = "1=1";
+      q.outFields = ["*"];
+      q.returnGeometry = true;
+      q.outSpatialReference = view.spatialReference;
+      if (paging) { q.start = start; q.num = pageSize; }
+      const fs = await lyr.queryFeatures(q);
+      all.push(...fs.features);
+      if (!paging || !fs.exceededTransferLimit || fs.features.length === 0) break;
+      start += fs.features.length;
+    }
+    return all;
   }
-}
 
-function deselectAndReset(){
-  setActive(null);
-  map.fitBounds(EXTENT_BOUNDS, { padding: 0, essential: true, duration: 900 });
-}
+  /* ---------- records ---------- */
+  function toLocation(g) {
+    const a = g.attributes;
+    return {
+      oid: a[layer.objectIdField],
+      graphic: g,
+      geometry: g.geometry,
+      photo: P.field ? websiteUrl(str(a[P.field])) : "",
+      name: str(a[F.name]) || "Name not listed",
+      address: str(a[F.address]),
+      typeRaw: str(a[F.businessType]),
+      website: websiteUrl(str(a[F.website])),
+      phone: str(a[F.phone]),
+      description: str(a[F.description])
+    };
+  }
 
-function flyToShop(shop, index){
-  map.flyTo({ center: [shop.lng, shop.lat], zoom: 17, essential: true, duration: 900 });
-  setActive(index);
-  cards[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
+  function makeRecord(id, locs, grouped) {
+    locs.sort(byAddress);
+    const first = locs[0];
+    const name = grouped
+      ? (ALIASES.get(norm(first.name)) || mostCommon(locs.map((l) => l.name)))
+      : first.name;
+    return {
+      id, grouped, name, locs,
+      oids: locs.map((l) => l.oid),
+      search: norm([name].concat(locs.map((l) => l.name)).join(" ")),
+      type: typeOf(mostCommon(locs.map((l) => l.typeRaw))),
+      photo: (locs.find((l) => l.photo) || {}).photo || "",
+      address: grouped ? "" : first.address,
+      phone: grouped ? "" : first.phone,
+      website: grouped ? mostCommon(locs.map((l) => l.website)) : first.website,
+      description: grouped ? mostCommon(locs.map((l) => l.description)) : first.description
+    };
+  }
 
-function renderShopsList(shops){
-  shops.forEach((shop, i) => {
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.innerHTML = `
-      <div class="card-thumb"></div>
-      <div class="card-body">
-        <h3>${shop.name}</h3>
-        <p class="card-address">${shop.address}</p>
+  function buildRecords(features) {
+    const groups = new Map();
+    features.map(toLocation).forEach((l) => {
+      const k = shopKey(l.name) || `oid ${l.oid}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(l);
+    });
+    const limit = Number(CONFIG.groupWhenMoreThan) || 3;
+    const out = [];
+    groups.forEach((locs, k) => {
+      if (locs.length > limit) out.push(makeRecord(`g:${k}`, locs, true));
+      else locs.forEach((l) => out.push(makeRecord(`o:${l.oid}`, [l], false)));
+    });
+
+    const unmatched = [...new Set(features.map((g) => str(g.attributes[F.businessType]))
+      .filter((v) => typeOf(v) === OTHER))];
+    if (unmatched.length) {
+      console.info("Business type values that match no dropdown choice (add them to " +
+        "CONFIG.businessTypes if they belong to one):", unmatched.map((v) => v || "(blank)"));
+    }
+    const combined = out.filter((r) => r.grouped);
+    if (combined.length) {
+      console.info("Combined into one entry:");
+      console.table(combined.map((r) => ({ name: r.name, locations: r.locs.length })));
+    }
+    return out;
+  }
+
+  /* ---------- filters ---------- */
+  function buildTypeOptions() {
+    const counts = new Map();
+    records.forEach((r) => counts.set(r.type.label, (counts.get(r.type.label) || 0) + 1));
+    els.type.innerHTML = `<option value="">All business types</option>` +
+      TYPES.filter((t) => counts.has(t.label)).map((t) =>
+        `<option value="${esc(t.label)}">${esc(t.label)} (${counts.get(t.label)})</option>`
+      ).join("");
+    els.type.value = state.type;
+  }
+
+  function matches(r) {
+    if (state.type && r.type.label !== state.type) return false;
+    if (state.q && !r.search.includes(state.q)) return false;
+    return true;
+  }
+
+  function apply() {
+    filtered = records.filter(matches)
+      .sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }) || byAddress(a, b));
+    renderCount();
+    renderList();
+    syncMap();
+  }
+
+  function renderCount() {
+    const n = filtered.length, total = records.length;
+    const shops = (k) => `${k} ${k === 1 ? "coffee shop" : "coffee shops"}`;
+    els.count.textContent = n === total ? shops(total) : `${n} of ${shops(total)}`;
+  }
+
+  /* ---------- cards ---------- */
+  const SHOW_LABEL = "+ See details";
+  const HIDE_LABEL = "− Hide details";
+
+  const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+  const siteLink = (u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(linkText(u))}</a>`;
+  const phoneLink = (p) => `<a href="${esc(telHref(p))}">${esc(p)}</a>`;
+
+  function detailsHtml(r) {
+    if (!r.grouped) {
+      const rows = [row("Address", esc(r.address || "Address not listed"))];
+      if (r.description) rows.push(row("About", `<span class="desc">${esc(r.description)}</span>`));
+      if (r.website) rows.push(row("Website", siteLink(r.website)));
+      if (r.phone) rows.push(row("Phone", phoneLink(r.phone)));
+      return `<dl>${rows.join("")}</dl>`;
+    }
+    const top = [];
+    if (r.description) top.push(`<p class="desc">${esc(r.description)}</p>`);
+    if (r.website) top.push(`<dl>${row("Website", siteLink(r.website))}</dl>`);
+    const locs = r.locs.map((l) => `<li data-oid="${esc(l.oid)}">
+        <span>${esc(l.address || "Address not listed")}</span>
+        <button type="button" class="go" data-goto="${esc(l.oid)}">Show on map</button>
+        ${l.phone ? `<span class="ph">${phoneLink(l.phone)}</span>` : ""}
+      </li>`).join("");
+    return `${top.join("")}<h3>Locations</h3><ul class="locs">${locs}</ul>`;
+  }
+
+  function cardHtml(r) {
+    // The business type is left off when the shop matches no configured type.
+    const sub = [r.grouped ? `${r.locs.length} locations` : (r.address || "Address not listed"),
+      r.type.label].filter(Boolean).join(", ");
+    const open = expanded.has(r.id);
+    const bodyId = `details-${esc(r.id)}`;
+    return `<article class="card" data-id="${esc(r.id)}" aria-current="${r.id === selectedId}">
+      ${thumbHtml(r)}
+      <div class="card-main">
+        <span class="ttl">${esc(r.name)}</span>
+        <span class="sub">${esc(sub)}</span>
+        <button type="button" class="more" aria-expanded="${open}" aria-controls="${bodyId}">${open ? HIDE_LABEL : SHOW_LABEL}</button>
+        <div class="more-body" id="${bodyId}" ${open ? "" : "hidden"}>${detailsHtml(r)}</div>
       </div>
-    `;
-    card.addEventListener('click', () => flyToShop(shop, i));
-    listEl.appendChild(card);
-    cards.push(card);
-  });
-}
-
-/* =========================================================
-   3) SEARCH + BUSINESS-TYPE FILTER (checkbox dropdown)
-   ========================================================= */
-let allTypes = [];
-let selectedTypes = new Set(); // empty = no filter applied yet, everything shows
-
-function populateTypeFilter(shops){
-  allTypes = [...new Set(shops.map(s => s.businesstype).filter(Boolean))].sort();
-  selectedTypes = new Set(); // start with nothing checked
-
-  typeDropdownList.innerHTML = '';
-  allTypes.forEach(type => {
-    const label = document.createElement('label');
-    label.className = 'dropdown-option';
-    label.innerHTML = `<input type="checkbox" value="${type}"> ${type}`;
-    label.querySelector('input').addEventListener('change', (e) => {
-      if (e.target.checked) selectedTypes.add(type);
-      else selectedTypes.delete(type);
-      syncAllCheckbox();
-      updateTypeDropdownLabel();
-      applyFilters();
-    });
-    typeDropdownList.appendChild(label);
-  });
-
-  updateTypeDropdownLabel();
-}
-
-function syncAllCheckbox(){
-  typeAllCheckbox.checked = selectedTypes.size === 0;
-}
-
-function updateTypeDropdownLabel(){
-  if (selectedTypes.size === 0 || selectedTypes.size === allTypes.length) {
-    typeDropdownLabel.textContent = 'All';
-  } else {
-    typeDropdownLabel.textContent = `${selectedTypes.size} selected`;
+    </article>`;
   }
-}
 
-// Acts as a reset: checking it clears any active filtering (back to
-// showing everything). It stays checked whenever nothing is selected.
-typeAllCheckbox.addEventListener('change', () => {
-  selectedTypes = new Set();
-  typeDropdownList.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-    cb.checked = false;
-  });
-  typeAllCheckbox.checked = true;
-  updateTypeDropdownLabel();
-  applyFilters();
-});
+  const cardEl = (id) => els.list.querySelector(`.card[data-id="${CSS.escape(String(id))}"]`);
 
-typeDropdownToggle.addEventListener('click', () => {
-  const isOpen = typeDropdownPanel.classList.toggle('is-open');
-  typeDropdownToggle.classList.toggle('is-open', isOpen);
-});
+  function renderList() {
+    const active = document.activeElement;
+    const focusId = active && els.list.contains(active) && active.classList.contains("more")
+      ? active.closest(".card").dataset.id : null;
 
-// Close the dropdown when clicking anywhere outside it
-document.addEventListener('click', (e) => {
-  if (!typeDropdownWrap.contains(e.target)) {
-    typeDropdownPanel.classList.remove('is-open');
-    typeDropdownToggle.classList.remove('is-open');
-  }
-});
-
-function applyFilters(){
-  const term = searchInput.value.trim().toLowerCase();
-  let visibleCount = 0;
-  const matchKeys = [];
-
-  allShops.forEach((shop, i) => {
-    const matchesTerm = !term ||
-      shop.name.toLowerCase().includes(term) ||
-      shop.address.toLowerCase().includes(term);
-    // Nothing checked = no filter applied = everything matches.
-    const matchesType = selectedTypes.size === 0 || selectedTypes.has(shop.businesstype);
-    const visible = matchesTerm && matchesType;
-
-    cards[i].classList.toggle('hidden', !visible);
-    if (visible) {
-      visibleCount++;
-      matchKeys.push(`${shop.name.toLowerCase()}|${shop.address.toLowerCase()}`);
+    if (!filtered.length) {
+      els.list.innerHTML = `<li class="empty"><p>No coffee shops match these filters.</p>
+        <button type="button" class="link-btn" data-action="reset">Clear filters</button></li>`;
+      return;
     }
+    els.list.innerHTML = filtered.map((r) => `<li>${cardHtml(r)}</li>`).join("");
+
+    if (focusId != null) {
+      const card = cardEl(focusId);
+      if (card) card.querySelector(".more").focus({ preventScroll: true });
+    }
+  }
+
+  // Shows the filtered shops on the map. The selected shop's normal symbol is
+  // hidden and the selected icon is drawn at each of its locations instead.
+  function syncMap() {
+    if (!layerView) return;
+    const sel = selectedId != null && filtered.some((r) => r.id === selectedId)
+      ? byId.get(selectedId) : null;
+    const hide = new Set(sel ? sel.oids : []);
+    const oids = filtered.flatMap((r) => r.oids).filter((o) => !hide.has(o));
+    layerView.filter = oids.length ? { objectIds: oids } : { where: "1=0" };
+
+    selectionLayer.removeAll();
+    if (sel) {
+      selectionLayer.addMany(sel.locs.map((l) => new Graphic({
+        geometry: l.geometry, symbol: selectedSymbol, attributes: { oid: l.oid }
+      })));
+    }
+  }
+
+  function resetFilters() {
+    state.q = ""; state.type = "";
+    els.search.value = "";
+    els.type.value = "";
+    apply();
+  }
+
+  /* ---------- selection ---------- */
+  const moveOpts = () => ({ animate: !reduceMotion, duration: 600 });
+
+  // Marks a shop as selected on the map and in the list. For a combined chain,
+  // every location gets the selected icon and the other shops fade back.
+  function setSelected(id) {
+    selectedId = id;
+    const r = id != null ? byId.get(id) : null;
+    syncMap();
+    if (layer) {
+      layer.featureEffect = r && r.grouped
+        ? { filter: { objectIds: r.oids }, excludedEffect: "opacity(30%) grayscale(80%)" }
+        : null;
+    }
+    els.list.querySelectorAll(".card").forEach((c) =>
+      c.setAttribute("aria-current", String(id != null && c.dataset.id === String(id))));
+  }
+
+  function zoomTo(r) {
+    if (r.locs.length === 1) {
+      view.goTo({ target: r.locs[0].geometry, zoom: Math.max(view.zoom, 17) }, moveOpts()).catch(() => {});
+      return;
+    }
+    view.goTo(r.locs.map((l) => l.geometry), moveOpts())
+      .then(() => { if (view.zoom > 17) view.zoom = 17; })
+      .catch(() => {});
+  }
+
+  function markLocation(id, oid) {
+    const card = cardEl(id);
+    if (!card) return;
+    let hit = null;
+    card.querySelectorAll(".locs li").forEach((li) => {
+      const on = oid != null && li.dataset.oid === String(oid);
+      li.classList.toggle("here", on);
+      if (on) hit = li;
+    });
+    if (hit) hit.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
+  }
+
+  function goHome() {
+    view.goTo({ center: CONFIG.center, zoom: CONFIG.zoom }, moveOpts()).catch(() => {});
+    const behavior = reduceMotion ? "auto" : "smooth";
+    els.panel.scrollTo({ top: 0, behavior });
+    window.scrollTo({ top: 0, behavior });
+  }
+
+  function deselect() {
+    if (selectedId == null) return;
+    setSelected(null);
+    if (CONFIG.returnHomeOnDeselect) goHome();
+  }
+
+  function toggleDetails(id, { open = !expanded.has(id), zoom = false, scroll = false } = {}) {
+    const r = byId.get(id);
+    const card = cardEl(id);
+    if (!r || !card) {
+      if (!open) { expanded.delete(id); if (selectedId === id) deselect(); }
+      return;
+    }
+    const btn = card.querySelector(".more");
+    const body = card.querySelector(".more-body");
+    if (open) expanded.add(id); else expanded.delete(id);
+    btn.setAttribute("aria-expanded", String(open));
+    btn.textContent = open ? HIDE_LABEL : SHOW_LABEL;
+    body.hidden = !open;
+
+    if (open) setSelected(id);
+    else if (selectedId === id) deselect();
+
+    if (open && zoom) zoomTo(r);
+    if (scroll) card.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  }
+
+  /* ---------- events ---------- */
+  function debounce(fn, ms) {
+    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+
+  els.search.addEventListener("input", debounce(() => {
+    state.q = norm(els.search.value); apply();
+  }, 200));
+
+  els.type.addEventListener("change", () => {
+    state.type = els.type.value;
+    apply();
   });
 
+  els.reset.addEventListener("click", resetFilters);
 
-  const filterExpr = matchKeys.length === 0
-    ? ['==', ['literal', 1], ['literal', 0]] // hide all
-    : [
-        'in',
-        ['downcase', ['concat', ['get', FIELDS.name], '|', ['get', FIELDS.address]]],
-        ['literal', matchKeys]
-      ];
+  els.list.addEventListener("click", (e) => {
+    if (e.target.closest('[data-action="reset"]')) { resetFilters(); return; }
 
-  if (map.getLayer(LAYER_ID)) {
-    map.setFilter(LAYER_ID, filterExpr);
+    const go = e.target.closest("[data-goto]");
+    if (go) {
+      const id = go.closest(".card").dataset.id;
+      const r = byId.get(id);
+      const loc = r && r.locs.find((l) => String(l.oid) === go.dataset.goto);
+      if (!loc) return;
+      if (selectedId !== id) setSelected(id);
+      markLocation(id, loc.oid);
+      view.goTo({ target: loc.geometry, zoom: Math.max(view.zoom, 17) }, moveOpts()).catch(() => {});
+      return;
+    }
+
+    const btn = e.target.closest(".more");
+    if (!btn) return;
+    toggleDetails(btn.closest(".card").dataset.id, { zoom: true });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const active = document.activeElement;
+    const card = active && active.closest ? active.closest(".card") : null;
+    const id = card ? card.dataset.id : selectedId;
+    if (id == null || !expanded.has(id)) return;
+    toggleDetails(id, { open: false });
+    const c = cardEl(id);
+    if (c) c.querySelector(".more").focus({ preventScroll: true });
+  });
+
+  // Finds the coffee shop under the pointer: a normal point or a selected icon.
+  async function shopAt(e) {
+    const res = await view.hitTest(e, { include: [layer, selectionLayer] });
+    const hit = res.results.find((h) => h.graphic &&
+      (h.graphic.layer === layer || h.graphic.layer === selectionLayer));
+    if (!hit) return null;
+    return hit.graphic.layer === selectionLayer
+      ? hit.graphic.attributes.oid
+      : hit.graphic.attributes[layer.objectIdField];
   }
-}
 
-searchInput.addEventListener('input', applyFilters);
+  view.on("click", async (e) => {
+    if (!layer) return;
+    const oid = await shopAt(e);
+    if (oid == null) {
+      if (selectedId != null) toggleDetails(selectedId, { open: false });
+      return;
+    }
+    const id = recordByOid.get(oid);
+    if (id == null) return;
+    const r = byId.get(id);
 
-mapViewBtn.addEventListener('click', () => {
-  appEl.classList.remove('list-view-only');
-  mapViewBtn.classList.add('is-active');
-  listViewBtn.classList.remove('is-active');
-  // The map container was hidden (display:none), so Mapbox needs to be
-  // told its size is valid again now that it's visible.
-  setTimeout(() => map.resize(), 0);
+    if (id === selectedId) {
+      if (r.grouped) { markLocation(id, oid); return; }
+      toggleDetails(id, { open: false });
+      return;
+    }
+    toggleDetails(id, { open: true, scroll: true, zoom: r.grouped });
+    if (r.grouped) markLocation(id, oid);
+    const c = cardEl(id);
+    if (c) c.querySelector(".more").focus({ preventScroll: true });
+  });
+
+  view.on("pointer-move", debounce(async (e) => {
+    if (!layer) return;
+    view.container.style.cursor = (await shopAt(e)) != null ? "pointer" : "";
+  }, 30));
+
+  /* ---------- start ---------- */
+  (async function start() {
+    try {
+      await view.when();
+
+      layer = await findCoffeeLayer();
+      if (!layer) {
+        throw new Error(CONFIG.layerTitle
+          ? `No feature layer in the web map has "${CONFIG.layerTitle}" in its title.`
+          : `No feature layer in the web map has a "${F.name}" field.`);
+      }
+      await layer.load();
+      if (CONFIG.where) layer.definitionExpression = CONFIG.where;
+      layer.outFields = ["*"];
+      layer.popupEnabled = false;
+      setLayerVisible(layer);
+      webMap.add(selectionLayer);   // on top, so the selected icon covers everything else
+      checkFields(layer);
+      if (P.field && !(layer.fields || []).some((f) => f.name === P.field)) {
+        console.warn(`CONFIG.photos.field "${P.field}" doesn't exist on this layer.`);
+      }
+
+      records = buildRecords(await loadAll(layer));
+      byId = new Map(records.map((r) => [r.id, r]));
+      recordByOid = new Map(records.flatMap((r) => r.oids.map((o) => [o, r.id])));
+
+      layerView = await view.whenLayerView(layer);
+      buildTypeOptions();
+      apply();
+
+      loadPhotos().then(patchPhotos).catch((err) => console.warn("Photos failed to load.", err));
+    } catch (err) {
+      console.error(err);
+      console.warn("Coffee shops failed to load. Check CONFIG.webMapId, CONFIG.layerTitle " +
+        "and the field names in CONFIG.fields.");
+      els.count.textContent = "Coffee shops unavailable";
+      els.list.innerHTML = `<li class="empty"><p>The coffee shop list didn't load.</p>
+        <p>Refresh the page, or check back soon.</p></li>`;
+    }
+  })();
 });
-listViewBtn.addEventListener('click', () => {
-  appEl.classList.add('list-view-only');
-  listViewBtn.classList.add('is-active');
-  mapViewBtn.classList.remove('is-active');
-});
-
 </script>
 </body>
 </html>
